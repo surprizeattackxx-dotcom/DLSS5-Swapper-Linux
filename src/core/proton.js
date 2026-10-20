@@ -26,6 +26,22 @@ function contextForSteamGame(game) {
   return proton ? { proton, prefix: game.protonPrefix, steamRoot: game.steamRoot, appid: game.id } : null;
 }
 
+// A prefix the user picked for a game Steam does not list (an emulator added as
+// a non-Steam shortcut, for instance). Accepts compatdata/<id> or its pfx.
+function contextForPrefix(chosen) {
+  if (process.platform !== 'linux' || typeof chosen !== 'string' || !path.isAbsolute(chosen)) return null;
+  let prefix = chosen;
+  if (!fs.existsSync(path.join(prefix, 'system.reg'))) prefix = path.join(chosen, 'pfx');
+  if (!fs.existsSync(path.join(prefix, 'system.reg'))) return null;
+  let steamRoot = path.dirname(prefix);
+  while (!fs.existsSync(path.join(steamRoot, 'steamapps')) && steamRoot !== path.dirname(steamRoot)) {
+    steamRoot = path.dirname(steamRoot);
+  }
+  if (!fs.existsSync(path.join(steamRoot, 'steamapps'))) return null;
+  const proton = protonCandidates(steamRoot, prefix)[0];
+  return proton ? { proton, prefix, steamRoot, appid: path.basename(path.dirname(prefix)) } : null;
+}
+
 function createSetupRunner(context) {
   return (setupExe, args, log) => new Promise((resolve) => {
     log('runningSetup', { setup: path.basename(setupExe), args: args.slice(1).join(' ') });
@@ -48,4 +64,4 @@ function createSetupRunner(context) {
   });
 }
 
-module.exports = { protonCandidates, contextForSteamGame, createSetupRunner };
+module.exports = { protonCandidates, contextForSteamGame, contextForPrefix, createSetupRunner };

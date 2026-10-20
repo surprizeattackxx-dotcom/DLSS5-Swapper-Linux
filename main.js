@@ -13,7 +13,7 @@ const os = require('os');
 const diagnostics = require('./src/core/diagnostics');
 const { scanGame } = require('./src/core/scan.js');
 const { discover, folder, dedupe, isInside, steam } = require('./src/library');
-const { contextForSteamGame, createSetupRunner } = require('./src/core/proton');
+const { contextForSteamGame, contextForPrefix, createSetupRunner } = require('./src/core/proton');
 const art = require('./src/steamart');
 const { backupRoot, saveActiveManifest, writeTracked, makeReShadeConfigWritable } = require('./src/core/apply.js');
 const { scanSource } = require('./src/core/scan.js');
@@ -251,7 +251,7 @@ function readState() {
   } catch { /* absent or unreadable: start from the defaults below */ }
   // Nothing seeded: the drive sweep finds game libraries on its own, and a
   // path from the machine this was written on means nothing anywhere else.
-  return { folders: [], excludedRoots: [], manual: [], posters: {}, hidden: [], scans: {} };
+  return { folders: [], excludedRoots: [], manual: [], posters: {}, hidden: [], scans: {}, protonPrefixes: {} };
 }
 
 function loadState() {
@@ -566,8 +566,26 @@ ipcMain.handle('game-menu', async (event, dir, options) => {
   if (typeof dir !== 'string' || !path.isAbsolute(dir)) return null;
   const window = BrowserWindow.fromWebContents(event.sender);
   if (!window || window.isDestroyed()) return null;
-  return gameMenu.show({ Menu, dialog, window, dir, name: gameName(dir),
+  const action = await gameMenu.show({ Menu, dialog, window, dir, name: gameName(dir),
     labels: options?.labels, position: options?.position, busy: mutationBusy || options?.busy === true });
+  if (action !== 'proton') return action;
+  // Handled here: the renderer has nothing to do with a prefix choice.
+  const picked = await dialog.showOpenDialog(window, {
+    properties: ['openDirectory'], title: 'Proton prefix for this game (compatdata/<id> or its pfx folder)'
+  });
+  if (picked.canceled || !picked.filePaths[0]) return null;
+  if (!contextForPrefix(picked.filePaths[0])) {
+    await dialog.showMessageBox(window, {
+      type: 'warning', title: 'Not a Proton prefix',
+      message: 'That folder is not a usable Proton prefix.',
+      detail: 'Pick the compatdata/<id> folder (or its pfx folder) inside a Steam library, and make sure a Proton version is installed there.'
+    });
+    return null;
+  }
+  const state = loadState();
+  state.protonPrefixes = { ...(state.protonPrefixes || {}), [path.resolve(dir)]: picked.filePaths[0] };
+  saveState(state);
+  return null;
 });
 
 ipcMain.handle('settings', () => {
@@ -1654,9 +1672,12 @@ ipcMain.handle('install', (event, dir, exePath, requestedRoute, requestedApi) =>
   const protonGame = process.platform === 'linux'
     ? steam().find((game) => path.resolve(game.dir) === path.resolve(dir))
     : null;
-  const proton = contextForSteamGame(protonGame);
+  const proton = contextForSteamGame(protonGame)
+    || (process.platform === 'linux'
+      ? contextForPrefix((loadState().protonPrefixes || {})[path.resolve(dir)])
+      : null);
   if (process.platform === 'linux' && !proton) {
-    return { ok: false, code: 'errProtonRequired', message: 'This installer supports Windows games launched through Steam Proton. Launch the game once with Proton, then try again.' };
+    return { ok: false, code: 'errProtonRequired', message: 'This installer supports Windows games launched through Steam Proton. Launch the game once with Proton, then try again. For a Windows program that Steam does not list (an emulator, for example), right-click it and choose Set Proton prefix.' };
   }
   if (process.platform === 'linux' && api === 'vulkan') {
     return { ok: false, code: 'errLinuxVulkanUnsupported', message: 'The Vulkan Feeder route needs a host Vulkan layer and is not supported on Linux yet. Select a DirectX renderer in the game.' };
