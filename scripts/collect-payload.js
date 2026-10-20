@@ -122,19 +122,25 @@ const RENODX_ADDONS = Object.freeze({
   // ShortFuse's DLSS Tool build. It carries the multipass control that #251
   // asks for - DirectNeuralRenderingPassCount - and it REPLACES the one above
   // rather than joining it: two neural consumers in one game leave the tickbox
-  // saying yes while the picture says no.
-  'renodx-dlss.addon64': '1d855cf226857dce890cffbf7206ba9b6497ce1d471b217c1c8b44b6cd5d27e9'
+  // saying yes while the picture says no. Two builds are accepted: the one
+  // pinned for #251, and RHI's 26.1003.2350 build (rhi-repo release
+  // renodx-dlss-SF-26.1003.2350), which was run by hand in Oblivion Remastered
+  // and GTA V Enhanced under Proton on 2026-10-20.
+  'renodx-dlss.addon64': [
+    '1d855cf226857dce890cffbf7206ba9b6497ce1d471b217c1c8b44b6cd5d27e9',
+    '1310119c87e4ab5ad0af41511411bd4608ff3c3030a29196ae0e4bba32c84585'
+  ]
 });
 
 function findRenoDxAddon(sourceDir, wanted) {
-  const expected = RENODX_ADDONS[wanted];
+  const expected = [].concat(RENODX_ADDONS[wanted]);
   for (const dir of [sourceDir, path.resolve(ROOT, '..'), ...DEFAULT_SOURCES]) {
     let files = [];
     try { files = fs.readdirSync(dir); } catch { continue; }
     const name = files.find((file) => file.toLowerCase() === wanted);
     if (!name) continue;
     const full = path.join(dir, name);
-    if (sha256(full) === expected) return full;
+    if (expected.includes(sha256(full))) return full;
   }
   return null;
 }
